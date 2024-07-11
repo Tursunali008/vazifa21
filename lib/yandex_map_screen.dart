@@ -1,258 +1,238 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:vazifa21/location_service.dart';
-import 'package:vazifa21/yandex_location_services.dart';
 import 'package:yandex_mapkit/yandex_mapkit.dart';
-import 'package:zoom_tap_animation/zoom_tap_animation.dart';
 
-class YandexMapScreen extends StatefulWidget {
-  const YandexMapScreen({super.key});
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
 
   @override
-  State<YandexMapScreen> createState() => _YandexMapScreenState();
+  State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _YandexMapScreenState extends State<YandexMapScreen> {
+class _HomeScreenState extends State<HomeScreen> {
   late YandexMapController mapController;
-  final _searchController = TextEditingController();
-  List<MapObject>? polylines;
-  List<PlacemarkMapObject> makers = [];
-
-  Point myCurrentLocation = const Point(
-    latitude: 41.2856806,
-    longitude: 69.9034646,
-  );
-
+  String currentLocationName = "";
+  List<MapObject> markers = [];
+  List<PolylineMapObject> polylines = [];
+  List<Point> positions = [];
+  Point? myLocation;
   Point najotTalim = const Point(
     latitude: 41.2856806,
     longitude: 69.2034646,
   );
+  final TextEditingController searchController = TextEditingController();
 
   void onMapCreated(YandexMapController controller) {
-    mapController = controller;
-    mapController.moveCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: najotTalim,
-          zoom: 20,
+    setState(() {
+      mapController = controller;
+
+      mapController.moveCamera(
+        animation: const MapAnimation(
+          type: MapAnimationType.smooth,
+          duration: 1,
         ),
-      ),
-    );
-    setState(() {});
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: najotTalim,
+            zoom: 18,
+          ),
+        ),
+      );
+    });
   }
 
   void onCameraPositionChanged(
     CameraPosition position,
     CameraUpdateReason reason,
-    bool finished,
-  ) async {
-    myCurrentLocation = position.target;
+    bool finish,
+  ) {
+    myLocation = position.target;
+    setState(() {});
   }
 
-  Point? myLocation;
-
-  Future<SuggestSessionResult> _suggest() async {
-    final resultWithSession = await YandexSuggest.getSuggestions(
-      text: _searchController.text,
-      boundingBox: const BoundingBox(
-        northEast: Point(latitude: 56.0421, longitude: 38.0284),
-        southWest: Point(latitude: 55.5143, longitude: 37.24841),
-      ),
-      suggestOptions: const SuggestOptions(
-        suggestType: SuggestType.geo,
-        suggestWords: true,
-        userPosition: Point(latitude: 56.0321, longitude: 38),
+  void addMarker() async {
+    markers.add(
+      PlacemarkMapObject(
+        mapId: MapObjectId(UniqueKey().toString()),
+        point: myLocation!,
+        opacity: 1,
+        icon: PlacemarkIcon.single(
+          PlacemarkIconStyle(
+            image: BitmapDescriptor.fromAssetImage(
+              "assets/current.png",
+            ),
+            scale: 0.5,
+          ),
+        ),
       ),
     );
 
-    return await resultWithSession.$2;
+    positions.add(myLocation!);
+
+    if (positions.length == 2) {
+      polylines = await YandexMapService.getDirection(
+        positions[0],
+        positions[1],
+      );
+    }
+
+    setState(() {});
   }
 
-  @override
-  void initState() {
-    super.initState();
-    LocationService.determinePosition().then(
-      (value) {
-        if (value != null) {
-          myLocation = Point(
-            latitude: value.latitude,
-            longitude: value.longitude,
-          );
-          setState(() {});
-        }
-      },
+  void performSearch(String query) async {
+    BoundingBox boundingBox = const BoundingBox(
+      southWest: Point(latitude: 55.751244, longitude: 37.618423),
+      northEast: Point(latitude: 55.801244, longitude: 37.668423),
     );
+
+    final searchResults =
+        await YandexMapService.searchByText(query, boundingBox);
+    if (searchResults.isNotEmpty) {
+      final firstResult = searchResults.first;
+      final point = firstResult.geometry.first.point;
+
+      if (point != null) {
+        markers.add(
+          PlacemarkMapObject(
+            mapId: MapObjectId(UniqueKey().toString()),
+            point: point,
+            opacity: 1,
+            icon: PlacemarkIcon.single(
+              PlacemarkIconStyle(
+                image: BitmapDescriptor.fromAssetImage(
+                  "assets/current.png",
+                ),
+                scale: 0.5,
+              ),
+            ),
+          ),
+        );
+
+        mapController.moveCamera(
+          animation: const MapAnimation(
+            type: MapAnimationType.smooth,
+            duration: 1,
+          ),
+          CameraUpdate.newCameraPosition(
+            CameraPosition(
+              target: point,
+              zoom: 18,
+            ),
+          ),
+        );
+
+        setState(() {});
+      } else {
+        print("No valid geometry found for the search result");
+      }
+    } else {
+      print("No results found");
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        title: Text(currentLocationName),
+        actions: [
+          IconButton(
+            onPressed: () async {
+              currentLocationName =
+                  await YandexMapService.searchPlace(myLocation!);
+              setState(() {});
+            },
+            icon: const Icon(Icons.search),
+          ),
+          IconButton(
+            onPressed: () {
+              mapController.moveCamera(
+                animation: const MapAnimation(
+                  type: MapAnimationType.smooth,
+                  duration: 1,
+                ),
+                CameraUpdate.zoomOut(),
+              );
+            },
+            icon: const Icon(Icons.remove_circle),
+          ),
+          IconButton(
+            onPressed: () {
+              mapController.moveCamera(
+                animation: const MapAnimation(
+                  type: MapAnimationType.smooth,
+                  duration: 1,
+                ),
+                CameraUpdate.zoomIn(),
+              );
+            },
+            icon: const Icon(Icons.add_circle),
+          ),
+        ],
+      ),
       body: Stack(
         children: [
           YandexMap(
-            onMapLongTap: (argument) async {
-              if (makers.length < 2) {
-                makers.add(
-                  PlacemarkMapObject(
-                    mapId: MapObjectId(UniqueKey().toString()),
-                    point: Point(
-                      latitude: argument.latitude,
-                      longitude: argument.longitude,
-                    ),
-                    icon: PlacemarkIcon.single(
-                      PlacemarkIconStyle(
-                        image: BitmapDescriptor.fromAssetImage(
-                          "assets/route_start.png",
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-
-                if (makers.length == 2) {
-                  polylines = await YandexMapServices.getDirection(
-                    makers.first.point,
-                    makers.last.point,
-                  );
-                }
-              } else {
-                makers.clear();
-                polylines?.clear();
-              }
-              setState(() {});
-            },
             onMapCreated: onMapCreated,
             onCameraPositionChanged: onCameraPositionChanged,
-            nightModeEnabled: true,
+            mapType: MapType.map,
             mapObjects: [
               PlacemarkMapObject(
                 mapId: const MapObjectId("najotTalim"),
                 point: najotTalim,
+                opacity: 1,
                 icon: PlacemarkIcon.single(
                   PlacemarkIconStyle(
                     image: BitmapDescriptor.fromAssetImage(
-                      "assets/route_start.png",
+                      "assets/current.png",
                     ),
+                    scale: 0.5,
                   ),
                 ),
               ),
-              ...makers,
-              ...?polylines,
+              ...markers,
+              ...polylines,
             ],
           ),
-          Positioned(
-            bottom: 120,
-            right: 15,
-            child: ZoomTapAnimation(
-              onTap: () async {
-                mapController.moveCamera(
-                  CameraUpdate.zoomIn(),
-                );
-              },
-              child: Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  color: const Color.fromARGB(132, 0, 0, 0),
-                ),
-                child: const Center(
-                  child: Icon(
-                    CupertinoIcons.add,
-                    size: 35,
-                    color: Colors.grey,
-                  ),
-                ),
-              ),
+          const Align(
+            child: Icon(
+              Icons.place,
+              size: 50,
+              color: Colors.blue,
             ),
           ),
           Positioned(
-            bottom: 60,
-            right: 15,
-            child: ZoomTapAnimation(
-              onTap: () async {
-                mapController.moveCamera(
-                  CameraUpdate.zoomOut(),
-                );
-              },
-              child: Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  color: const Color.fromARGB(132, 0, 0, 0),
-                ),
-                child: const Icon(
-                  CupertinoIcons.minus,
-                  size: 35,
-                  color: Colors.grey,
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: 200,
-            right: 15,
-            child: ZoomTapAnimation(
-              onTap: () {
-                mapController.moveCamera(
-                  CameraUpdate.newCameraPosition(
-                    CameraPosition(
-                      target: myLocation ?? const Point(latitude: 0, longitude: 0),
-                      zoom: 20,
+            top: 16,
+            left: 16,
+            right: 16,
+            child: Container(
+              color: Colors.white,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: searchController,
+                      decoration: const InputDecoration(
+                        hintText: "Search for a place",
+                      ),
+                      onSubmitted: performSearch,
                     ),
                   ),
-                );
-              },
-              child: Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  color: const Color.fromARGB(132, 0, 0, 0),
-                ),
-                child: const Icon(
-                  Icons.my_location_rounded,
-                  size: 35,
-                  color: Colors.grey,
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 50,
-            left: 20,
-            right: 20,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.5),
-                    spreadRadius: 2,
-                    blurRadius: 5,
-                    offset: const Offset(0, 3),
+                  IconButton(
+                    onPressed: () {
+                      performSearch(searchController.text);
+                    },
+                    icon: const Icon(Icons.search),
                   ),
                 ],
-              ),
-              child: TextField(
-                controller: _searchController,
-                style: const TextStyle(color: Colors.black),
-                onChanged: (value) async {
-                  final res = await _suggest();
-                  if (res.items != null) {
-                    setState(() {});
-                  }
-                },
-                decoration: const InputDecoration(
-                  hintText: "Search Location",
-                ),
               ),
             ),
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: addMarker,
+        child: const Icon(Icons.add_location),
       ),
     );
   }

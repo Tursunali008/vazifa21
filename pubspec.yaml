@@ -10,6 +10,8 @@ dependencies:
   flutter:
     sdk: flutter
   geolocator: ^12.0.0
+  google_places_autocomplete_text_field: ^0.1.3
+  http: ^1.2.1
   yandex_mapkit: ^4.1.0
   zoom_tap_animation: ^1.1.0
 
